@@ -163,15 +163,14 @@ export class Agent {
 
     if (actions.length === 0) {
       log.info("Решил ничего не делать");
-      return;
+    } else {
+      // 7. Выполняем действия
+      for (const action of actions) {
+        await this.executeAction(action);
+      }
     }
 
-    // 7. Выполняем действия
-    for (const action of actions) {
-      await this.executeAction(action);
-    }
-
-    // 8. Пушим статистику на дашборд
+    // 8. Пушим статистику на дашборд (всегда, даже если ничего не делал)
     const updatedStats = memory.getStats();
     const updatedBalance = await wallet.getContractBalance();
     this.dashboard.pushStats({
