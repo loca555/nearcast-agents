@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { Agent, loadConfig } from "./core/agent.js";
+import { Orchestrator } from "./core/orchestrator.js";
 import { app as dashboardApp } from "./dashboard/index.js";
 
 dotenv.config();
@@ -98,7 +99,7 @@ if (configPaths.length === 0) {
 
 console.log(`
   ╔══════════════════════════════════════════════════╗
-  ║   NearCast Agents — AI Trading Arena             ║
+  ║   NearCast Agents — Orchestrator Mode             ║
   ║   Агентов: ${String(configPaths.length).padEnd(38)}║
   ║   API: ${env.NEARCAST_API.padEnd(42)}║
   ║   Контракт: ${env.NEARCAST_CONTRACT.padEnd(37)}║
@@ -141,14 +142,18 @@ console.warn = (...args) => { capture("WRN", args); origWarn(...args); };
 // ── Dashboard + Health сервер ─────────────────────────────
 const PORT = process.env.PORT || 10000;
 
+// Оркестратор (создаём до endpoints чтобы /api/debug имел доступ)
+const orchestrator = new Orchestrator(agents, env);
+
 // Runtime debug endpoint
 dashboardApp.get("/api/debug", (_req, res) => {
   res.json({
+    mode: "orchestrator",
     loaded: agents.length,
+    orchestratorCycles: orchestrator.cycleCount,
     agents: agents.map(a => ({
       name: a.config.name,
-      running: a.running,
-      cycles: a.cycleCount,
+      accountId: a.config.accountId,
     })),
     uptime: process.uptime(),
     env: { NEARCAST_API: env.NEARCAST_API, NEARCAST_CONTRACT: env.NEARCAST_CONTRACT },
@@ -167,11 +172,11 @@ const server = dashboardApp.listen(PORT, () => {
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-  console.log("\n  Останавливаю агентов...");
-  agents.forEach(a => a.stop());
+  console.log("\n  Останавливаю оркестратор...");
+  orchestrator.stop();
   server.close();
   setTimeout(() => process.exit(0), 1000);
 });
 
-// Запускаем всех агентов параллельно
-await Promise.all(agents.map(a => a.start()));
+// Запускаем оркестратор (один цикл за всех агентов)
+await orchestrator.start();

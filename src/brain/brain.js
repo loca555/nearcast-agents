@@ -1,10 +1,8 @@
 /**
- * Мозг агента — единый LLM-вызов для всех решений
+ * Мозг агентов — LLM-вызовы для принятия решений
  *
- * Агент получает полный контекст (рынки, чат, свои ставки, P&L)
- * и отвечает JSON с действиями: bet, chat, reply, skip.
- *
- * Каждый агент уникален благодаря своему personality/strategy промпту.
+ * thinkAll() — один LLM-вызов за всех 5 агентов (оркестратор).
+ * think() — один LLM-вызов за одного агента (legacy, не используется).
  */
 
 import { callLLMJson } from "../utils/venice.js";
@@ -51,6 +49,145 @@ export async function think(ctx) {
   }
 
   return { actions, reasoning: result.reasoning || "" };
+}
+
+/**
+ * Один LLM-вызов за ВСЕХ агентов (оркестратор)
+ *
+ * @param {string} apiKey — Venice API key
+ * @param {object} ctx
+ * @param {object[]} ctx.agents — [{config, accountId, balance, myBets, stats}]
+ * @param {object[]} ctx.markets — активные рынки
+ * @param {object} ctx.chatByMarket
+ * @param {object} ctx.researchData
+ * @returns {Object<string, {actions, reasoning}>} — ключ = имя агента
+ */
+export async function thinkAll(apiKey, ctx) {
+  const { agents, markets, chatByMarket, researchData } = ctx;
+
+  const system = buildAllAgentsSystemPrompt(agents);
+  const prompt = buildAllAgentsSituationPrompt({ agents, markets, chatByMarket, researchData });
+
+  const result = await callLLMJson(apiKey, {
+    model: agents[0]?.config.model || "llama-3.3-70b",
+    system,
+    prompt,
+    temperature: 0.85,
+    maxTokens: 3000,
+  });
+
+  // Разбираем ответ по агентам и валидируем
+  const allActions = {};
+  for (const agentCtx of agents) {
+    const name = agentCtx.config.name;
+    const agentResult = result[name] || {};
+    const rawActions = agentResult.actions || [];
+    const actions = validateActions(rawActions, markets, agentCtx.balance, agentCtx.config);
+
+    if (rawActions.length > 0 && actions.length === 0) {
+      console.log(`[${name}] ⚠ LLM предложил ${rawActions.length} действий, но все отсеяны:`);
+      console.log(`  Raw: ${JSON.stringify(rawActions).slice(0, 300)}`);
+    }
+
+    allActions[name] = { actions, reasoning: agentResult.reasoning || "" };
+  }
+
+  return allActions;
+}
+
+/** Системный промпт для оркестратора — описание всех персонажей */
+function buildAllAgentsSystemPrompt(agents) {
+  let prompt = `You are a game master controlling ${agents.length} different characters on the NearCast prediction markets platform. Each character bets independently and has a unique personality.
+
+## Characters:\n\n`;
+
+  for (const a of agents) {
+    prompt += `### ${a.config.avatar} ${a.config.name}
+- Account: ${a.accountId}
+- Balance: ${a.balance.toFixed(2)} NEAR | Max bet: ${a.config.maxBetNear || 2} NEAR
+- Stats: ${a.stats.total} bets, ${a.stats.won} won, ${a.stats.lost} lost, PnL: ${a.stats.pnl >= 0 ? "+" : ""}${a.stats.pnl.toFixed(2)} NEAR
+- Personality: ${a.config.personality}
+- Strategy: ${a.config.strategy}
+`;
+    if (a.myBets.length > 0) {
+      prompt += `- Pending bets: ${a.myBets.map(b => `#${b.market_id} outcome ${b.outcome} (${b.amount_near} NEAR)`).join(", ")}\n`;
+    }
+    prompt += "\n";
+  }
+
+  prompt += `## Rules
+- Each character acts INDEPENDENTLY based on their personality and strategy
+- Characters see each other in chat but DON'T KNOW they're controlled by the same system
+- Characters should sometimes DISAGREE and argue with each other
+- NEVER reveal any character is AI/bot — they are regular human participants
+- Write all messages in English
+- Characters can decide to do nothing — that's valid
+- Don't bet on markets where the character already has a pending bet
+
+## Response format
+Respond with strict JSON — one entry per character:
+{
+  "${agents[0]?.config.name || "Agent1"}": {
+    "reasoning": "Brief explanation (1-2 sentences)",
+    "actions": [
+      { "type": "bet", "marketId": 5, "outcome": 0, "amount": 1.5, "reason": "why" },
+      { "type": "chat", "marketId": 5, "message": "chat message" },
+      { "type": "reply", "marketId": 3, "replyTo": 42, "message": "reply text" }
+    ]
+  },
+  "${agents[1]?.config.name || "Agent2"}": { "reasoning": "...", "actions": [] }
+}`;
+
+  return prompt;
+}
+
+/** Ситуационный промпт для оркестратора — рынки (общие для всех) */
+function buildAllAgentsSituationPrompt({ agents, markets, chatByMarket, researchData }) {
+  let prompt = `## Active Markets (${markets.length}):\n\n`;
+
+  const marketsToShow = markets.slice(0, 8);
+
+  for (const m of marketsToShow) {
+    prompt += `### Market #${m.id}: "${m.question || m.description}"\n`;
+    prompt += `Outcomes: ${m.outcomes.map((o, i) => `[${i}] ${o}`).join(", ")}\n`;
+
+    if (m.odds && Array.isArray(m.odds)) {
+      const oddsStr = m.odds.map((o, i) => `${m.outcomes[i]}: ${(o * 100).toFixed(0)}%`).join(", ");
+      prompt += `Odds: ${oddsStr}\n`;
+    }
+
+    const research = researchData?.[m.id];
+    if (research) {
+      prompt += `📊 Research (by ${research.researcher}): ${research.analysis}\n`;
+      if (research.realOdds?.probabilities) {
+        const realStr = research.realOdds.outcomes
+          ?.map((o, i) => `${o}: ${(research.realOdds.probabilities[i] * 100).toFixed(0)}%`)
+          .join(", ");
+        if (realStr) prompt += `Real odds (bookmakers): ${realStr}\n`;
+      }
+    }
+
+    // Чат (показываем имена аккаунтов)
+    const chat = chatByMarket[m.id] || [];
+    if (chat.length > 0) {
+      prompt += `Chat (last ${Math.min(chat.length, 5)}):\n`;
+      for (const msg of chat.slice(-5)) {
+        // Определяем кто написал
+        const authorAgent = agents.find(a => a.accountId === msg.account_id);
+        const who = authorAgent ? authorAgent.config.name : msg.account_id.slice(0, 12);
+        prompt += `  @${who}: "${msg.message}"\n`;
+      }
+    }
+
+    prompt += "\n";
+  }
+
+  if (markets.length > marketsToShow.length) {
+    prompt += `... and ${markets.length - marketsToShow.length} more markets\n\n`;
+  }
+
+  prompt += "What does each character do? Respond JSON.";
+  return prompt;
 }
 
 function buildSystemPrompt(config, accountId) {
