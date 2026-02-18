@@ -8,7 +8,9 @@
 import { createWallet } from "./wallet.js";
 import { createMarketAPI } from "./market-api.js";
 import { createMemory } from "./memory.js";
+import { saveResearch, getAllResearch, hasRecentResearch } from "./shared-research.js";
 import { think } from "../brain/brain.js";
+import { callLLMJson } from "../utils/venice.js";
 import { createLogger } from "../utils/logger.js";
 import path from "path";
 import fs from "fs";
@@ -128,6 +130,14 @@ export class Agent {
     // 5. Проверяем резолвнутые рынки и обновляем P&L
     await this.checkResolutions(markets);
 
+    // 5.5. Фаза research — Shark ищет реальные шансы через веб
+    if (config.webSearch) {
+      await this.doResearch(markets.slice(0, 8));
+    }
+
+    // 5.6. Загружаем исследования для всех агентов
+    const researchData = getAllResearch();
+
     // 6. Думаем (LLM)
     log.think("Анализирую ситуацию...");
 
@@ -140,6 +150,7 @@ export class Agent {
       stats,
       balance,
       accountId: wallet.accountId,
+      researchData,
     });
 
     if (reasoning) log.think(reasoning);
@@ -152,6 +163,51 @@ export class Agent {
     // 7. Выполняем действия
     for (const action of actions) {
       await this.executeAction(action);
+    }
+  }
+
+  /** Фаза research — веб-поиск реальных шансов (только для агентов с webSearch) */
+  async doResearch(markets) {
+    const { log, config, env } = this;
+    const researchModel = config.researchModel || "claude-opus-4-6";
+
+    for (const m of markets) {
+      // Пропускаем если уже есть свежее исследование (< 30 мин)
+      if (hasRecentResearch(m.id, 30)) continue;
+
+      const question = m.question || m.description || "";
+      if (!question) continue;
+
+      log.think(`🔍 Research: рынок #${m.id} — "${question.slice(0, 60)}..."`);
+
+      try {
+        const researchPrompt = config.researchPrompt || "Analyze this prediction market and find real odds.";
+
+        const result = await callLLMJson(env.VENICE_API_KEY, {
+          model: researchModel,
+          system: researchPrompt,
+          prompt: `Market question: "${question}"\nOutcomes: ${(m.outcomes || []).join(", ")}\n\nSearch the web for real betting odds on this event and respond in JSON.`,
+          temperature: 0.3,
+          maxTokens: 1500,
+          webSearch: true,
+        });
+
+        saveResearch(m.id, {
+          marketQuestion: question,
+          realOdds: result.realOdds || {},
+          analysis: result.analysis || "",
+          sources: result.sources || "",
+          researcher: config.name,
+        });
+
+        log.action("RESEARCH", `Рынок #${m.id}: ${result.analysis?.slice(0, 80) || "done"}`);
+
+        // Пауза между запросами (не спамить API)
+        await new Promise(r => setTimeout(r, 2000));
+
+      } catch (err) {
+        log.warn(`Research failed для рынка #${m.id}: ${err.message}`);
+      }
     }
   }
 

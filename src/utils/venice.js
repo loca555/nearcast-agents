@@ -10,13 +10,25 @@ const BASE_URL = "https://api.venice.ai/api/v1";
 /**
  * Вызов LLM через Venice API
  * @param {string} apiKey
- * @param {object} opts — { model, system, prompt, temperature, maxTokens }
+ * @param {object} opts — { model, system, prompt, temperature, maxTokens, webSearch }
  * @returns {string} — текст ответа
  */
-export async function callLLM(apiKey, { model, system, prompt, temperature = 0.7, maxTokens = 2000 }) {
+export async function callLLM(apiKey, { model, system, prompt, temperature = 0.7, maxTokens = 2000, webSearch = false }) {
   const messages = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: prompt });
+
+  const body = {
+    model: model || "llama-3.3-70b",
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+
+  // Venice web search — модель получает доступ к интернету
+  if (webSearch) {
+    body.web_search = true;
+  }
 
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
@@ -24,12 +36,7 @@ export async function callLLM(apiKey, { model, system, prompt, temperature = 0.7
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model: model || "llama-3.3-70b",
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

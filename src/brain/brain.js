@@ -24,13 +24,13 @@ import { callLLMJson } from "../utils/venice.js";
  * @returns {{ actions: Array<{type, marketId, outcome?, amount?, message?, replyTo?}> }}
  */
 export async function think(ctx) {
-  const { apiKey, config, markets, chatByMarket, myBets, stats, balance, accountId } = ctx;
+  const { apiKey, config, markets, chatByMarket, myBets, stats, balance, accountId, researchData } = ctx;
 
   // Формируем системный промпт из конфига агента
   const system = buildSystemPrompt(config, accountId);
 
-  // Формируем контекст ситуации
-  const prompt = buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config });
+  // Формируем контекст ситуации (с данными исследований)
+  const prompt = buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config, researchData });
 
   const result = await callLLMJson(apiKey, {
     model: config.model || "llama-3.3-70b",
@@ -80,7 +80,7 @@ ${config.strategy}
 { "reasoning": "причина", "actions": [] }`;
 }
 
-function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config }) {
+function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config, researchData }) {
   let prompt = `## Твой баланс: ${balance.toFixed(2)} NEAR\n`;
   prompt += `## Твоя статистика: ${stats.total} ставок, ${stats.won} выиграно, ${stats.lost} проиграно, P&L: ${stats.pnl >= 0 ? "+" : ""}${stats.pnl.toFixed(2)} NEAR, винрейт: ${(stats.winRate * 100).toFixed(0)}%\n\n`;
 
@@ -104,6 +104,19 @@ function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, c
     if (m.odds && Array.isArray(m.odds)) {
       const oddsStr = m.odds.map((o, i) => `${m.outcomes[i]}: ${(o * 100).toFixed(0)}%`).join(", ");
       prompt += `Коэффициенты: ${oddsStr}\n`;
+    }
+
+    // Данные исследований (от Shark через web search)
+    const research = researchData?.[m.id];
+    if (research) {
+      prompt += `📊 Web Research (by ${research.researcher}): ${research.analysis}\n`;
+      if (research.realOdds?.probabilities) {
+        const realStr = research.realOdds.outcomes
+          ?.map((o, i) => `${o}: ${(research.realOdds.probabilities[i] * 100).toFixed(0)}%`)
+          .join(", ");
+        if (realStr) prompt += `Реальные шансы (букмекеры): ${realStr}\n`;
+      }
+      if (research.sources) prompt += `Источники: ${research.sources}\n`;
     }
 
     if (hasBet) {
