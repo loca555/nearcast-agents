@@ -21,6 +21,7 @@ export class Orchestrator {
     this.env = env;
     this.running = false;
     this.cycleCount = 0;
+    this.balances = {}; // { agentName: { near, contract } } — кэш для /api/balances
   }
 
   async start() {
@@ -94,7 +95,10 @@ export class Orchestrator {
       await agent.checkResolutions();
     }
 
-    // 5. Собираем контексты всех агентов
+    // 5. Мониторинг балансов + пополнение если нужно
+    await this.monitorBalances();
+
+    // 6. Собираем контексты всех агентов
     const agentContexts = [];
     for (const agent of this.agents) {
       try {
@@ -102,16 +106,11 @@ export class Orchestrator {
         const myBets = agent.memory.getPendingBets();
         const stats = agent.memory.getStats();
 
-        if (balance < 1) {
-          agent.log.warn("Мало средств — пополняю...");
-          await agent.wallet.ensureContractBalance(5).catch(() => {});
-        }
-
         agentContexts.push({
           agent,
           config: agent.config,
           accountId: agent.wallet.accountId,
-          balance: await agent.wallet.getContractBalance(), // обновлённый после пополнения
+          balance,
           myBets,
           stats,
         });
@@ -125,7 +124,7 @@ export class Orchestrator {
       return;
     }
 
-    // 6. ОДИН LLM-вызов за ВСЕХ агентов
+    // 7. ОДИН LLM-вызов за ВСЕХ агентов
     log.info(`💭 Один LLM-вызов за ${agentContexts.length} агентов...`);
 
     let allActions;
@@ -142,7 +141,7 @@ export class Orchestrator {
       return;
     }
 
-    // 7. Диспатч действий с рандомными задержками
+    // 8. Диспатч действий с рандомными задержками
     for (const actx of agentContexts) {
       const name = actx.config.name;
       const result = allActions[name];
@@ -163,8 +162,51 @@ export class Orchestrator {
       }
     }
 
-    // 8. Push stats для ВСЕХ
+    // 9. Push stats для ВСЕХ
     await this.pushAllStats();
+  }
+
+  /** Мониторинг балансов всех агентов + автопополнение */
+  async monitorBalances() {
+    log.info("── Проверка балансов ──");
+    const MIN_NEAR = 5;       // минимум NEAR на аккаунте
+    const MIN_CONTRACT = 3;   // минимум на контракте
+
+    for (const agent of this.agents) {
+      try {
+        const nearBal = await agent.wallet.getNearBalance();
+        const contractBal = await agent.wallet.getContractBalance();
+
+        // Сохраняем для /api/balances
+        this.balances[agent.config.name] = {
+          accountId: agent.wallet.accountId,
+          near: nearBal,
+          contract: contractBal,
+          lastCheck: new Date().toISOString(),
+        };
+
+        const status = contractBal < MIN_CONTRACT ? "⚠ LOW" : "✓";
+        log.info(`  ${agent.config.avatar} ${agent.config.name}: ${nearBal.toFixed(2)} NEAR (wallet) | ${contractBal.toFixed(2)} NEAR (contract) ${status}`);
+
+        // Автопополнение: если на контракте мало — пополняем
+        if (contractBal < MIN_CONTRACT) {
+          agent.log.warn(`Контракт ${contractBal.toFixed(2)} < ${MIN_CONTRACT} — пополняю...`);
+          await agent.wallet.ensureContractBalance(MIN_CONTRACT + 2).catch(err => {
+            agent.log.error(`Ошибка пополнения контракта: ${err.message}`);
+          });
+        }
+
+        // Если на кошельке мало — пробуем faucet/funder
+        if (nearBal < MIN_NEAR) {
+          agent.log.warn(`Кошелёк ${nearBal.toFixed(2)} < ${MIN_NEAR} — пополняю...`);
+          await agent.wallet.ensureFunded(MIN_NEAR + 5).catch(err => {
+            agent.log.error(`Ошибка пополнения кошелька: ${err.message}`);
+          });
+        }
+      } catch (err) {
+        agent.log.error(`Ошибка проверки баланса: ${err.message}`);
+      }
+    }
   }
 
   /** Research фаза — делегируем агенту с webSearch */

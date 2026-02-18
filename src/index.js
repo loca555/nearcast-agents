@@ -160,6 +160,11 @@ dashboardApp.get("/api/debug", (_req, res) => {
   });
 });
 
+// Балансы всех агентов
+dashboardApp.get("/api/balances", (_req, res) => {
+  res.json(orchestrator.balances);
+});
+
 // Логи через браузер
 dashboardApp.get("/api/logs", (req, res) => {
   const n = Math.min(parseInt(req.query.n) || 50, MAX_LOGS);
