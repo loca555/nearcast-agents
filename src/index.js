@@ -1,0 +1,111 @@
+/**
+ * NearCast Agents — точка входа
+ *
+ * Запуск одного или нескольких агентов:
+ *   node src/index.js --agent agents/maxbet.json
+ *   node src/index.js --all              (все агенты из agents/)
+ */
+
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { Agent, loadConfig } from "./core/agent.js";
+
+dotenv.config();
+
+// ── Проверка окружения ──────────────────────────────────
+
+const required = ["VENICE_API_KEY", "NEARCAST_API", "NEARCAST_CONTRACT"];
+const missing = required.filter(k => !process.env[k]);
+if (missing.length) {
+  console.error(`\n  ✗ Не заданы переменные окружения: ${missing.join(", ")}`);
+  console.error("  Скопируй .env.example → .env и заполни\n");
+  process.exit(1);
+}
+
+const env = {
+  VENICE_API_KEY: process.env.VENICE_API_KEY,
+  NEARCAST_API: process.env.NEARCAST_API,
+  NEARCAST_CONTRACT: process.env.NEARCAST_CONTRACT,
+  NEAR_NETWORK: process.env.NEAR_NETWORK || "testnet",
+};
+
+// ── Парсинг аргументов ──────────────────────────────────
+
+const args = process.argv.slice(2);
+let configPaths = [];
+
+if (args.includes("--all")) {
+  // Загружаем все конфиги из agents/
+  const agentsDir = path.resolve("agents");
+  const files = fs.readdirSync(agentsDir).filter(f => f.endsWith(".json"));
+  configPaths = files.map(f => path.join(agentsDir, f));
+} else {
+  const agentIdx = args.indexOf("--agent");
+  if (agentIdx !== -1 && args[agentIdx + 1]) {
+    configPaths.push(path.resolve(args[agentIdx + 1]));
+  }
+}
+
+if (configPaths.length === 0) {
+  console.log(`
+  ╔══════════════════════════════════════════════════╗
+  ║   NearCast Agents — AI Trading Arena             ║
+  ╚══════════════════════════════════════════════════╝
+
+  Использование:
+    node src/index.js --agent agents/maxbet.json   Запустить одного агента
+    node src/index.js --all                        Запустить всех агентов
+
+  Доступные агенты:
+`);
+  const agentsDir = path.resolve("agents");
+  if (fs.existsSync(agentsDir)) {
+    const files = fs.readdirSync(agentsDir).filter(f => f.endsWith(".json"));
+    for (const f of files) {
+      const cfg = JSON.parse(fs.readFileSync(path.join(agentsDir, f), "utf8"));
+      console.log(`    ${cfg.avatar} ${cfg.name.padEnd(12)} — agents/${f}`);
+    }
+  }
+  console.log("");
+  process.exit(0);
+}
+
+// ── Запуск агентов ──────────────────────────────────────
+
+console.log(`
+  ╔══════════════════════════════════════════════════╗
+  ║   NearCast Agents — AI Trading Arena             ║
+  ║   Агентов: ${String(configPaths.length).padEnd(38)}║
+  ║   API: ${env.NEARCAST_API.padEnd(42)}║
+  ║   Контракт: ${env.NEARCAST_CONTRACT.padEnd(37)}║
+  ╚══════════════════════════════════════════════════╝
+`);
+
+const agents = [];
+
+for (const cfgPath of configPaths) {
+  try {
+    const config = loadConfig(cfgPath);
+    const agent = new Agent(config, env);
+    await agent.init();
+    agents.push(agent);
+  } catch (err) {
+    console.error(`  ✗ Ошибка загрузки ${cfgPath}: ${err.message}`);
+  }
+}
+
+if (agents.length === 0) {
+  console.error("  Ни один агент не загружен.");
+  process.exit(1);
+}
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\n  Останавливаю агентов...");
+  agents.forEach(a => a.stop());
+  setTimeout(() => process.exit(0), 1000);
+});
+
+// Запускаем всех агентов параллельно
+await Promise.all(agents.map(a => a.start()));
