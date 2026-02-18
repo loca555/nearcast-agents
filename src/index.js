@@ -123,6 +123,21 @@ if (agents.length === 0) {
   process.exit(1);
 }
 
+// ── Буфер логов (последние 200 строк) ─────────────────────
+const logBuffer = [];
+const MAX_LOGS = 200;
+const origLog = console.log;
+const origErr = console.error;
+const origWarn = console.warn;
+const capture = (level, args) => {
+  const line = `[${new Date().toISOString().slice(11, 19)}] [${level}] ${args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ")}`;
+  logBuffer.push(line);
+  if (logBuffer.length > MAX_LOGS) logBuffer.shift();
+};
+console.log = (...args) => { capture("LOG", args); origLog(...args); };
+console.error = (...args) => { capture("ERR", args); origErr(...args); };
+console.warn = (...args) => { capture("WRN", args); origWarn(...args); };
+
 // ── Dashboard + Health сервер ─────────────────────────────
 const PORT = process.env.PORT || 10000;
 
@@ -138,6 +153,12 @@ dashboardApp.get("/api/debug", (_req, res) => {
     uptime: process.uptime(),
     env: { NEARCAST_API: env.NEARCAST_API, NEARCAST_CONTRACT: env.NEARCAST_CONTRACT },
   });
+});
+
+// Логи через браузер
+dashboardApp.get("/api/logs", (req, res) => {
+  const n = Math.min(parseInt(req.query.n) || 50, MAX_LOGS);
+  res.type("text/plain").send(logBuffer.slice(-n).join("\n"));
 });
 
 const server = dashboardApp.listen(PORT, () => {

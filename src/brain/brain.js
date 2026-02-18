@@ -41,7 +41,14 @@ export async function think(ctx) {
   });
 
   // Валидируем и фильтруем действия
-  const actions = validateActions(result.actions || [], markets, balance, config);
+  const rawActions = result.actions || [];
+  const actions = validateActions(rawActions, markets, balance, config);
+
+  // Диагностика: если LLM предложил действия, но валидация их отсеяла
+  if (rawActions.length > 0 && actions.length === 0) {
+    console.log(`[${config.name}] ⚠ LLM предложил ${rawActions.length} действий, но все отсеяны:`);
+    console.log(`  Raw: ${JSON.stringify(rawActions).slice(0, 300)}`);
+  }
 
   return { actions, reasoning: result.reasoning || "" };
 }
@@ -154,10 +161,15 @@ function validateActions(actions, markets, balance, config) {
   return actions.filter(a => {
     if (!a.type) return false;
 
+    // LLM часто возвращает marketId как строку — приводим к числу
+    if (a.marketId != null) a.marketId = Number(a.marketId);
+    if (a.outcome != null) a.outcome = Number(a.outcome);
+    if (a.amount != null) a.amount = Number(a.amount);
+
     if (a.type === "bet") {
       if (!validMarketIds.has(a.marketId)) return false;
-      if (typeof a.outcome !== "number" || a.outcome < 0) return false;
-      if (typeof a.amount !== "number" || a.amount <= 0) return false;
+      if (typeof a.outcome !== "number" || isNaN(a.outcome) || a.outcome < 0) return false;
+      if (typeof a.amount !== "number" || isNaN(a.amount) || a.amount <= 0) return false;
       if (a.amount > maxBet) a.amount = maxBet;
       if (totalBet + a.amount > balance) return false;
       totalBet += a.amount;
