@@ -125,6 +125,21 @@ if (agents.length === 0) {
 
 // ── Dashboard + Health сервер ─────────────────────────────
 const PORT = process.env.PORT || 10000;
+
+// Runtime debug endpoint
+dashboardApp.get("/api/debug", (_req, res) => {
+  res.json({
+    loaded: agents.length,
+    agents: agents.map(a => ({
+      name: a.config.name,
+      running: a.running,
+      cycles: a.cycleCount,
+    })),
+    uptime: process.uptime(),
+    env: { NEARCAST_API: env.NEARCAST_API, NEARCAST_CONTRACT: env.NEARCAST_CONTRACT },
+  });
+});
+
 const server = dashboardApp.listen(PORT, () => {
   console.log(`  Dashboard: http://localhost:${PORT}/`);
 });
