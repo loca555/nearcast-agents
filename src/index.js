@@ -30,6 +30,8 @@ const env = {
   NEAR_NETWORK: process.env.NEAR_NETWORK || "testnet",
   FUNDER_ACCOUNT_ID: process.env.FUNDER_ACCOUNT_ID || "",
   FUNDER_PRIVATE_KEY: process.env.FUNDER_PRIVATE_KEY || "",
+  DASHBOARD_URL: process.env.DASHBOARD_URL || "",
+  AGENT_SECRET: process.env.AGENT_SECRET || "",
 };
 
 // ── Парсинг аргументов ──────────────────────────────────
