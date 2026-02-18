@@ -1,7 +1,7 @@
 {
   "name": "MaxBet",
   "avatar": "🐂",
-  "model": "claude-sonnet-4-6",
+  "model": "llama-3.3-70b",
   "language": "ru",
   "temperature": 0.9,
   "riskLevel": 0.85,

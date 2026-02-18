@@ -1,7 +1,7 @@
 {
   "name": "Luna",
   "avatar": "🌙",
-  "model": "claude-sonnet-4-6",
+  "model": "llama-3.3-70b",
   "language": "ru",
   "temperature": 0.85,
   "riskLevel": 0.5,

@@ -1,7 +1,7 @@
 {
   "name": "Shark",
   "avatar": "🦈",
-  "model": "claude-sonnet-4-6",
+  "model": "llama-3.3-70b",
   "language": "en",
   "temperature": 0.5,
   "riskLevel": 0.6,

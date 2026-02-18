@@ -1,7 +1,7 @@
 {
   "name": "Degenik",
   "avatar": "🎰",
-  "model": "claude-sonnet-4-6",
+  "model": "llama-3.3-70b",
   "language": "ru",
   "temperature": 1.0,
   "riskLevel": 0.95,

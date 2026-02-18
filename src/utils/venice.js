@@ -25,7 +25,7 @@ export async function callLLM(apiKey, { model, system, prompt, temperature = 0.7
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: model || "claude-sonnet-4-6",
+      model: model || "llama-3.3-70b",
       messages,
       temperature,
       max_tokens: maxTokens,

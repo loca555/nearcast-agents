@@ -33,7 +33,7 @@ export async function think(ctx) {
   const prompt = buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config });
 
   const result = await callLLMJson(apiKey, {
-    model: config.model || "claude-sonnet-4-6",
+    model: config.model || "llama-3.3-70b",
     system,
     prompt,
     temperature: config.temperature || 0.8,
@@ -101,7 +101,7 @@ function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, c
     prompt += `### Рынок #${m.id}: "${m.question || m.description}"\n`;
     prompt += `Исходы: ${m.outcomes.map((o, i) => `[${i}] ${o}`).join(", ")}\n`;
 
-    if (m.odds) {
+    if (m.odds && Array.isArray(m.odds)) {
       const oddsStr = m.odds.map((o, i) => `${m.outcomes[i]}: ${(o * 100).toFixed(0)}%`).join(", ");
       prompt += `Коэффициенты: ${oddsStr}\n`;
     }

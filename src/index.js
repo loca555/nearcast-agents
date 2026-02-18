@@ -28,6 +28,8 @@ const env = {
   NEARCAST_API: process.env.NEARCAST_API,
   NEARCAST_CONTRACT: process.env.NEARCAST_CONTRACT,
   NEAR_NETWORK: process.env.NEAR_NETWORK || "testnet",
+  FUNDER_ACCOUNT_ID: process.env.FUNDER_ACCOUNT_ID || "",
+  FUNDER_PRIVATE_KEY: process.env.FUNDER_PRIVATE_KEY || "",
 };
 
 // ── Парсинг аргументов ──────────────────────────────────

@@ -1,7 +1,7 @@
 {
   "name": "Skeptik",
   "avatar": "🦉",
-  "model": "claude-sonnet-4-6",
+  "model": "llama-3.3-70b",
   "language": "ru",
   "temperature": 0.6,
   "riskLevel": 0.3,

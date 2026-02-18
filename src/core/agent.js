@@ -30,13 +30,18 @@ export class Agent {
     fs.mkdirSync(dataDir, { recursive: true });
     this.memory = createMemory(path.join(dataDir, "memory.db"));
 
-    // Кошелёк NEAR
+    // Кошелёк NEAR (funder — для создания аккаунтов если faucet недоступен)
+    const funder = env.FUNDER_ACCOUNT_ID && env.FUNDER_PRIVATE_KEY
+      ? { accountId: env.FUNDER_ACCOUNT_ID, privateKey: env.FUNDER_PRIVATE_KEY }
+      : null;
+
     this.wallet = await createWallet({
       name: config.name,
       avatar: config.avatar,
       network: env.NEAR_NETWORK || "testnet",
       contractId: env.NEARCAST_CONTRACT,
       dataDir,
+      funder,
     });
 
     // API клиент
@@ -107,8 +112,12 @@ export class Agent {
       } catch { chatByMarket[m.id] = []; }
 
       try {
-        const odds = await api.getOdds(m.id);
-        if (odds) m.odds = odds.probabilities || odds;
+        const oddsData = await api.getOdds(m.id);
+        if (oddsData && oddsData.odds) {
+          // odds — массив коэффициентов, конвертируем в вероятности
+          const total = oddsData.odds.reduce((s, o) => s + (1 / o), 0);
+          m.odds = oddsData.odds.map(o => (1 / o) / total);
+        }
       } catch { /* нет odds */ }
     }
 
