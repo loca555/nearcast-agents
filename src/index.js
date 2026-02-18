@@ -9,9 +9,28 @@
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import http from "http";
 import { Agent, loadConfig } from "./core/agent.js";
 
 dotenv.config();
+
+// ── Восстановление ключей из AGENT_KEYS (для Render / CI) ──
+if (process.env.AGENT_KEYS) {
+  try {
+    const keys = JSON.parse(process.env.AGENT_KEYS);
+    for (const [agentName, keyData] of Object.entries(keys)) {
+      const dir = path.join("data", agentName.toLowerCase().replace(/\s+/g, "-"));
+      const keyFile = path.join(dir, `${agentName}.key.json`);
+      if (!fs.existsSync(keyFile)) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(keyFile, JSON.stringify(keyData, null, 2));
+        console.log(`  ✓ Ключ восстановлен: ${agentName}`);
+      }
+    }
+  } catch (err) {
+    console.error(`  ✗ Ошибка разбора AGENT_KEYS: ${err.message}`);
+  }
+}
 
 // ── Проверка окружения ──────────────────────────────────
 
@@ -104,10 +123,29 @@ if (agents.length === 0) {
   process.exit(1);
 }
 
+// ── Health HTTP сервер (для Render web service) ──────────
+const HEALTH_PORT = process.env.PORT || 10000;
+const server = http.createServer((_req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({
+    status: "ok",
+    agents: agents.map(a => ({
+      name: a.config.name,
+      cycles: a.cycleCount,
+      running: a.running,
+    })),
+    uptime: process.uptime(),
+  }));
+});
+server.listen(HEALTH_PORT, () => {
+  console.log(`  Health: http://localhost:${HEALTH_PORT}/`);
+});
+
 // Graceful shutdown
 process.on("SIGINT", () => {
   console.log("\n  Останавливаю агентов...");
   agents.forEach(a => a.stop());
+  server.close();
   setTimeout(() => process.exit(0), 1000);
 });
 

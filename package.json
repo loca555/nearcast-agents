@@ -5,7 +5,7 @@
   "private": true,
   "description": "Автономные AI-агенты для NearCast prediction markets",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/index.js --all",
     "agent": "node src/index.js --agent"
   },
   "dependencies": {
