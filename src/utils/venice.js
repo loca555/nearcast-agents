@@ -55,10 +55,12 @@ export async function callLLM(apiKey, { model, system, prompt, temperature = 0.7
 export async function callLLMJson(apiKey, opts) {
   const raw = await callLLM(apiKey, opts);
 
-  // Убираем markdown блоки
+  // Убираем markdown блоки (LLM часто оборачивает JSON в ```json...```)
   let cleaned = raw.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  // Извлекаем контент между первым ``` и последним ```
+  const codeBlockMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim();
   }
 
   // Убираем trailing commas перед } или ]
@@ -69,7 +71,15 @@ export async function callLLMJson(apiKey, opts) {
 
   try {
     return JSON.parse(cleaned);
-  } catch (err) {
-    throw new Error(`Не удалось распарсить JSON от LLM: ${err.message}\nОтвет: ${raw.slice(0, 300)}`);
+  } catch {
+    // Фоллбек: ищем первый { ... } или [ ... ] в тексте
+    const jsonMatch = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+      try {
+        let fallback = jsonMatch[1].replace(/,\s*([}\]])/g, "$1").replace(/\/\/.*$/gm, "");
+        return JSON.parse(fallback);
+      } catch { /* ниже бросим ошибку */ }
+    }
+    throw new Error(`Не удалось распарсить JSON от LLM: ${raw.slice(0, 300)}`);
   }
 }
