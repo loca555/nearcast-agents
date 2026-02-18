@@ -1,49 +1,18 @@
 /**
- * Пуш событий и статистики на дашборд
+ * Пуш событий и статистики на встроенный дашборд
  *
- * Все вызовы fire-and-forget — дашборд может быть недоступен,
- * это не должно ломать работу агентов.
+ * Прямая запись в SQLite (без HTTP).
  */
 
-export function createDashboardPusher(dashboardUrl, agentName, agentAvatar, secret) {
-  if (!dashboardUrl) {
-    // Заглушка — ничего не отправляем
-    return {
-      pushEvent: async () => {},
-      pushStats: async () => {},
-    };
-  }
+import { pushEvent as dbPushEvent, pushStats as dbPushStats } from "../dashboard/index.js";
 
-  const headers = {
-    "Content-Type": "application/json",
-    ...(secret ? { "X-Agent-Secret": secret } : {}),
+export function createDashboardPusher(_url, agentName, agentAvatar, _secret) {
+  return {
+    pushEvent(eventType, data = {}) {
+      dbPushEvent(agentName, agentAvatar, eventType, data);
+    },
+    pushStats(stats) {
+      dbPushStats(agentName, agentAvatar, stats);
+    },
   };
-
-  /** Отправить событие (bet, chat, reply, win, loss, research, void) */
-  async function pushEvent(eventType, data = {}) {
-    try {
-      await fetch(`${dashboardUrl}/api/events`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ agentName, agentAvatar, eventType, ...data }),
-      });
-    } catch {
-      // Дашборд недоступен — не критично
-    }
-  }
-
-  /** Обновить статистику агента (upsert) */
-  async function pushStats(stats) {
-    try {
-      await fetch(`${dashboardUrl}/api/stats`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ agentName, agentAvatar, ...stats }),
-      });
-    } catch {
-      // Не критично
-    }
-  }
-
-  return { pushEvent, pushStats };
 }

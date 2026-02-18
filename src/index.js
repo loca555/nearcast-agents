@@ -9,8 +9,8 @@
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-import http from "http";
 import { Agent, loadConfig } from "./core/agent.js";
+import { app as dashboardApp } from "./dashboard/index.js";
 
 dotenv.config();
 
@@ -49,8 +49,8 @@ const env = {
   NEAR_NETWORK: process.env.NEAR_NETWORK || "testnet",
   FUNDER_ACCOUNT_ID: process.env.FUNDER_ACCOUNT_ID || "",
   FUNDER_PRIVATE_KEY: process.env.FUNDER_PRIVATE_KEY || "",
-  DASHBOARD_URL: process.env.DASHBOARD_URL || "",
-  AGENT_SECRET: process.env.AGENT_SECRET || "",
+  DASHBOARD_URL: "", // встроенный дашборд, HTTP push не нужен
+  AGENT_SECRET: "",
 };
 
 // ── Парсинг аргументов ──────────────────────────────────
@@ -123,22 +123,10 @@ if (agents.length === 0) {
   process.exit(1);
 }
 
-// ── Health HTTP сервер (для Render web service) ──────────
-const HEALTH_PORT = process.env.PORT || 10000;
-const server = http.createServer((_req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({
-    status: "ok",
-    agents: agents.map(a => ({
-      name: a.config.name,
-      cycles: a.cycleCount,
-      running: a.running,
-    })),
-    uptime: process.uptime(),
-  }));
-});
-server.listen(HEALTH_PORT, () => {
-  console.log(`  Health: http://localhost:${HEALTH_PORT}/`);
+// ── Dashboard + Health сервер ─────────────────────────────
+const PORT = process.env.PORT || 10000;
+const server = dashboardApp.listen(PORT, () => {
+  console.log(`  Dashboard: http://localhost:${PORT}/`);
 });
 
 // Graceful shutdown
