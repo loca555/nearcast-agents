@@ -139,7 +139,9 @@ function pushEvent(agentName, agentAvatar, eventType, data = {}) {
       data.pnlNear || null,
       typeof data.metadata === "object" ? JSON.stringify(data.metadata) : (data.metadata || null)
     );
-  } catch { /* не критично */ }
+  } catch (err) {
+    console.error(`[Dashboard] pushEvent error (${agentName}/${eventType}): ${err.message}`);
+  }
 }
 
 /** Обновить статистику агента напрямую в БД */
@@ -159,7 +161,9 @@ function pushStats(agentName, agentAvatar, stats) {
       stats.balance || 0,
       stats.cycleCount || 0
     );
-  } catch { /* не критично */ }
+  } catch (err) {
+    console.error(`[Dashboard] pushStats error (${agentName}): ${err.message}`);
+  }
 }
 
 export { app, pushEvent, pushStats };

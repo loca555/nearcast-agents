@@ -97,94 +97,105 @@ export class Agent {
 
     log.info(`─── Цикл #${this.cycleCount} ───`);
 
-    // 1. Проверяем баланс
-    const balance = await wallet.getContractBalance();
-    log.info(`Баланс на контракте: ${balance.toFixed(2)} NEAR`);
+    try {
+      // 1. Проверяем баланс
+      const balance = await wallet.getContractBalance();
+      log.info(`Баланс на контракте: ${balance.toFixed(2)} NEAR`);
 
-    if (balance < 1) {
-      log.warn("Мало средств — пополняю...");
-      await wallet.ensureContractBalance(5);
-    }
+      if (balance < 1) {
+        log.warn("Мало средств — пополняю...");
+        await wallet.ensureContractBalance(5);
+      }
 
-    // 2. Сканируем рынки
-    const markets = await api.getMarkets({ status: "active" });
-    log.info(`Активных рынков: ${markets.length}`);
+      // 2. Сканируем рынки
+      const markets = await api.getMarkets({ status: "active" });
+      log.info(`Активных рынков: ${markets.length}`);
 
-    if (markets.length === 0) return;
+      if (markets.length === 0) {
+        log.info("Нет активных рынков");
+        return;
+      }
 
-    // 3. Загружаем чаты + odds для каждого рынка
-    const chatByMarket = {};
-    for (const m of markets.slice(0, 8)) {
-      try {
-        chatByMarket[m.id] = await api.getChat(m.id, 10);
-      } catch { chatByMarket[m.id] = []; }
+      // 3. Загружаем чаты + odds для каждого рынка
+      const chatByMarket = {};
+      for (const m of markets.slice(0, 8)) {
+        try {
+          chatByMarket[m.id] = await api.getChat(m.id, 10);
+        } catch { chatByMarket[m.id] = []; }
 
-      try {
-        const oddsData = await api.getOdds(m.id);
-        if (oddsData && oddsData.odds) {
-          // odds — массив коэффициентов, конвертируем в вероятности
-          const total = oddsData.odds.reduce((s, o) => s + (1 / o), 0);
-          m.odds = oddsData.odds.map(o => (1 / o) / total);
+        try {
+          const oddsData = await api.getOdds(m.id);
+          if (oddsData && oddsData.odds) {
+            const total = oddsData.odds.reduce((s, o) => s + (1 / o), 0);
+            m.odds = oddsData.odds.map(o => (1 / o) / total);
+          }
+        } catch { /* нет odds */ }
+      }
+
+      // 4. Свои ставки из памяти
+      const myBets = memory.getPendingBets();
+      const stats = memory.getStats();
+
+      // 5. Проверяем резолвнутые рынки и обновляем P&L
+      await this.checkResolutions(markets);
+
+      // 5.5. Фаза research — Shark ищет реальные шансы через веб
+      if (config.webSearch) {
+        await this.doResearch(markets.slice(0, 8));
+      }
+
+      // 5.6. Загружаем исследования для всех агентов
+      const researchData = getAllResearch();
+
+      // 6. Думаем (LLM)
+      log.think("Анализирую ситуацию...");
+
+      const { actions, reasoning } = await think({
+        apiKey: env.VENICE_API_KEY,
+        config,
+        markets,
+        chatByMarket,
+        myBets,
+        stats,
+        balance,
+        accountId: wallet.accountId,
+        researchData,
+      });
+
+      if (reasoning) log.think(reasoning);
+
+      if (actions.length === 0) {
+        log.info("Решил ничего не делать");
+      } else {
+        // 7. Выполняем действия
+        for (const action of actions) {
+          await this.executeAction(action);
         }
-      } catch { /* нет odds */ }
-    }
-
-    // 4. Свои ставки из памяти
-    const myBets = memory.getPendingBets();
-    const stats = memory.getStats();
-
-    // 5. Проверяем резолвнутые рынки и обновляем P&L
-    await this.checkResolutions(markets);
-
-    // 5.5. Фаза research — Shark ищет реальные шансы через веб
-    if (config.webSearch) {
-      await this.doResearch(markets.slice(0, 8));
-    }
-
-    // 5.6. Загружаем исследования для всех агентов
-    const researchData = getAllResearch();
-
-    // 6. Думаем (LLM)
-    log.think("Анализирую ситуацию...");
-
-    const { actions, reasoning } = await think({
-      apiKey: env.VENICE_API_KEY,
-      config,
-      markets,
-      chatByMarket,
-      myBets,
-      stats,
-      balance,
-      accountId: wallet.accountId,
-      researchData,
-    });
-
-    if (reasoning) log.think(reasoning);
-
-    if (actions.length === 0) {
-      log.info("Решил ничего не делать");
-    } else {
-      // 7. Выполняем действия
-      for (const action of actions) {
-        await this.executeAction(action);
+      }
+    } catch (err) {
+      log.error(`Ошибка в цикле: ${err.message}`);
+    } finally {
+      // 8. Пушим статистику на дашборд ВСЕГДА (даже при ошибках)
+      try {
+        const updatedStats = memory.getStats();
+        const updatedBalance = await wallet.getContractBalance().catch(() => 0);
+        this.dashboard.pushStats({
+          accountId: wallet.accountId,
+          totalBets: updatedStats.total || 0,
+          won: updatedStats.won || 0,
+          lost: updatedStats.lost || 0,
+          pending: updatedStats.pending || 0,
+          pnl: updatedStats.pnl || 0,
+          totalBet: updatedStats.totalBet || 0,
+          winRate: updatedStats.winRate || 0,
+          balance: updatedBalance,
+          cycleCount: this.cycleCount,
+        });
+        log.info("Dashboard stats обновлены");
+      } catch (err) {
+        log.error(`Ошибка pushStats: ${err.message}`);
       }
     }
-
-    // 8. Пушим статистику на дашборд (всегда, даже если ничего не делал)
-    const updatedStats = memory.getStats();
-    const updatedBalance = await wallet.getContractBalance();
-    this.dashboard.pushStats({
-      accountId: wallet.accountId,
-      totalBets: updatedStats.total || 0,
-      won: updatedStats.won || 0,
-      lost: updatedStats.lost || 0,
-      pending: updatedStats.pending || 0,
-      pnl: updatedStats.pnl || 0,
-      totalBet: updatedStats.totalBet || 0,
-      winRate: updatedStats.winRate || 0,
-      balance: updatedBalance,
-      cycleCount: this.cycleCount,
-    });
   }
 
   /** Фаза research — веб-поиск реальных шансов (только для агентов с webSearch) */
