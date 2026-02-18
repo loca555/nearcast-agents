@@ -124,6 +124,31 @@ function buildAllAgentsSystemPrompt(agents) {
 - Characters can decide to do nothing — that's valid
 - Don't bet on markets where the character already has a pending bet
 
+## Chat style — CRITICAL
+Write chat messages like REAL prediction market traders. Study these rules carefully:
+- Keep messages SHORT: 1-2 sentences, 5-25 words. No essays.
+- Reference SPECIFIC numbers: odds percentages, bet sizes, price movements ("YES moved from 30 to 45 in an hour")
+- Use prediction market slang NATURALLY (not forced): alpha, edge, fade, rekt, based, LFG, gg, full port, tailing
+- Talk about resolution criteria, entry prices, expected value
+- React to OTHER people's messages — agree, disagree, roast them, ask follow-up questions
+- NEVER use generic phrases like "Interesting market!" or "Great prediction!" or "Good luck everyone!"
+- NEVER repeat the same phrase across markets. Each message must be unique and specific to THAT market
+- Characters should have DIFFERENT message lengths — some write 3 words, some write 15
+- Not every character needs to chat every cycle. Silence is natural.
+- When disagreeing, reference WHY with data: "this line should be 70+ based on closings, you're fading free money"
+
+BAD examples (never write like this):
+- "LETS GOOO!!!" (generic, says nothing)
+- "I believe in this outcome!" (vague, no specifics)
+- "Great market, excited to participate" (sounds like a bot)
+
+GOOD examples:
+- "YES at 35 cents when DraftKings has this at -200? free edge"
+- "imagine being long NO here after that injury report lmao"
+- "how does this resolve if the game gets postponed? criteria unclear"
+- "bought 2 NEAR at 0.40, selling at 0.65 if it hits"
+- "everyone piling in on the favorite but the line hasnt moved on real books"
+
 ## Response format
 Respond with strict JSON — one entry per character:
 {
@@ -225,54 +250,51 @@ If you decide to do nothing:
 }
 
 function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, config, researchData }) {
-  let prompt = `## Твой баланс: ${balance.toFixed(2)} NEAR\n`;
-  prompt += `## Твоя статистика: ${stats.total} ставок, ${stats.won} выиграно, ${stats.lost} проиграно, P&L: ${stats.pnl >= 0 ? "+" : ""}${stats.pnl.toFixed(2)} NEAR, винрейт: ${(stats.winRate * 100).toFixed(0)}%\n\n`;
+  let prompt = `## Your balance: ${balance.toFixed(2)} NEAR\n`;
+  prompt += `## Your stats: ${stats.total} bets, ${stats.won} won, ${stats.lost} lost, PnL: ${stats.pnl >= 0 ? "+" : ""}${stats.pnl.toFixed(2)} NEAR, winrate: ${(stats.winRate * 100).toFixed(0)}%\n\n`;
 
   if (markets.length === 0) {
-    prompt += "Активных рынков нет.\n";
+    prompt += "No active markets.\n";
     return prompt;
   }
 
-  prompt += `## Активные рынки (${markets.length}):\n\n`;
+  prompt += `## Active Markets (${markets.length}):\n\n`;
 
-  // Показываем до 8 рынков (чтобы не превысить лимит токенов)
   const marketsToShow = markets.slice(0, 8);
 
   for (const m of marketsToShow) {
     const myBetsOnMarket = myBets.filter(b => b.market_id === m.id);
     const hasBet = myBetsOnMarket.length > 0;
 
-    prompt += `### Рынок #${m.id}: "${m.question || m.description}"\n`;
-    prompt += `Исходы: ${m.outcomes.map((o, i) => `[${i}] ${o}`).join(", ")}\n`;
+    prompt += `### Market #${m.id}: "${m.question || m.description}"\n`;
+    prompt += `Outcomes: ${m.outcomes.map((o, i) => `[${i}] ${o}`).join(", ")}\n`;
 
     if (m.odds && Array.isArray(m.odds)) {
       const oddsStr = m.odds.map((o, i) => `${m.outcomes[i]}: ${(o * 100).toFixed(0)}%`).join(", ");
-      prompt += `Коэффициенты: ${oddsStr}\n`;
+      prompt += `Odds: ${oddsStr}\n`;
     }
 
-    // Данные исследований (от Shark через web search)
     const research = researchData?.[m.id];
     if (research) {
-      prompt += `📊 Web Research (by ${research.researcher}): ${research.analysis}\n`;
+      prompt += `Research (by ${research.researcher}): ${research.analysis}\n`;
       if (research.realOdds?.probabilities) {
         const realStr = research.realOdds.outcomes
           ?.map((o, i) => `${o}: ${(research.realOdds.probabilities[i] * 100).toFixed(0)}%`)
           .join(", ");
-        if (realStr) prompt += `Реальные шансы (букмекеры): ${realStr}\n`;
+        if (realStr) prompt += `Real bookmaker odds: ${realStr}\n`;
       }
-      if (research.sources) prompt += `Источники: ${research.sources}\n`;
+      if (research.sources) prompt += `Sources: ${research.sources}\n`;
     }
 
     if (hasBet) {
-      prompt += `Твои ставки: ${myBetsOnMarket.map(b => `${b.amount_near} NEAR на "${m.outcomes[b.outcome]}"`).join(", ")}\n`;
+      prompt += `Your bets: ${myBetsOnMarket.map(b => `${b.amount_near} NEAR on "${m.outcomes[b.outcome]}"`).join(", ")}\n`;
     }
 
-    // Чат (последние 5 сообщений)
     const chat = chatByMarket[m.id] || [];
     if (chat.length > 0) {
-      prompt += `Чат (последние ${Math.min(chat.length, 5)}):\n`;
+      prompt += `Chat (last ${Math.min(chat.length, 5)}):\n`;
       for (const msg of chat.slice(-5)) {
-        const who = msg.account_id === config.accountId ? "ТЫ" : msg.account_id.slice(0, 12);
+        const who = msg.account_id === config.accountId ? "YOU" : msg.account_id.slice(0, 12);
         prompt += `  @${who}: "${msg.message}"\n`;
       }
     }
@@ -281,10 +303,10 @@ function buildSituationPrompt({ markets, chatByMarket, myBets, stats, balance, c
   }
 
   if (markets.length > marketsToShow.length) {
-    prompt += `... и ещё ${markets.length - marketsToShow.length} рынков\n\n`;
+    prompt += `... and ${markets.length - marketsToShow.length} more markets\n\n`;
   }
 
-  prompt += "Что делаешь? Ответь JSON.";
+  prompt += "What do you do? Respond JSON.";
   return prompt;
 }
 
