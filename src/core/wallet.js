@@ -153,6 +153,18 @@ export async function createWallet(opts) {
     });
   }
 
+  /** Клейм выигрыша/рефанда (зачисляется на внутренний баланс контракта) */
+  async function claimWinnings(marketId) {
+    log.action("claim", `Клейм выигрыша на рынке #${marketId}`);
+    await account.functionCall({
+      contractId,
+      methodName: "claim_winnings",
+      args: { market_id: marketId },
+      gas: GAS,
+      attachedDeposit: "0",
+    });
+  }
+
   /** Пополнить через funder или faucet */
   async function ensureFunded(minNear = 5) {
     const bal = await getNearBalance();
@@ -225,6 +237,6 @@ export async function createWallet(opts) {
   return {
     account, accountId, keyPair,
     getNearBalance, getContractBalance,
-    deposit, placeBet, ensureFunded, ensureContractBalance,
+    deposit, placeBet, claimWinnings, ensureFunded, ensureContractBalance,
   };
 }

@@ -107,9 +107,9 @@ export class Agent {
     }
   }
 
-  /** Проверить резолвнутые рынки и обновить P&L */
+  /** Проверить резолвнутые рынки, клеймить выигрыш/рефанд и обновить P&L */
   async checkResolutions() {
-    const { memory, api, log, dashboard } = this;
+    const { memory, wallet, api, log, dashboard } = this;
     const pending = memory.getPendingBets();
 
     for (const bet of pending) {
@@ -119,6 +119,20 @@ export class Agent {
 
         if (market.status === "resolved") {
           const won = market.winning_outcome === bet.outcome;
+
+          // Клеймим выигрыш на контракте (зачисляется на внутренний баланс)
+          if (won) {
+            try {
+              await wallet.claimWinnings(bet.market_id);
+              log.action("CLAIM", `Выигрыш заклеймлен на рынке #${bet.market_id}`);
+            } catch (err) {
+              // "Выигрыш уже получен" или "Нет ставок" — не страшно
+              if (!err.message.includes("уже получен")) {
+                log.warn(`Ошибка клейма рынка #${bet.market_id}: ${err.message}`);
+              }
+            }
+          }
+
           const pnl = won ? bet.amount_near * 1.5 : -bet.amount_near;
           memory.resolveBet(bet.market_id, won ? "won" : "lost", pnl);
           log.action(won ? "WIN" : "LOSS",
@@ -127,8 +141,18 @@ export class Agent {
             marketId: bet.market_id, pnlNear: pnl,
           });
         } else if (market.status === "voided") {
+          // Клеймим рефанд на контракте
+          try {
+            await wallet.claimWinnings(bet.market_id);
+            log.action("CLAIM", `Рефанд заклеймлен на рынке #${bet.market_id}`);
+          } catch (err) {
+            if (!err.message.includes("уже получен")) {
+              log.warn(`Ошибка клейма рефанда #${bet.market_id}: ${err.message}`);
+            }
+          }
+
           memory.resolveBet(bet.market_id, "voided", 0);
-          log.action("VOID", `Рынок #${bet.market_id} аннулирован`);
+          log.action("VOID", `Рынок #${bet.market_id} аннулирован — рефанд`);
           dashboard.pushEvent("void", { marketId: bet.market_id });
         }
       } catch { /* рынок недоступен */ }
