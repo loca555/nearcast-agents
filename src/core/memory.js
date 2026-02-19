@@ -120,10 +120,18 @@ export function createMemory(dbPath) {
      * @param {object[]} markets — все рынки из API
      */
     syncFromChain(chainBets, markets) {
-      if (!chainBets || chainBets.length === 0) return 0;
-
       const existing = db.prepare("SELECT COUNT(*) as c FROM bets").get().c;
-      if (existing > 0) return 0; // уже есть данные — не перезаписываем
+      const chainCount = chainBets?.length || 0;
+
+      // Если локальные данные расходятся с цепочкой — сбрасываем и пересинхронизируем
+      // (контракт мог быть передеплоен, или ставки потеряны)
+      if (existing > 0 && existing !== chainCount) {
+        db.prepare("DELETE FROM bets").run();
+      } else if (existing > 0 && existing === chainCount) {
+        return 0; // данные совпадают — пропускаем
+      }
+
+      if (chainCount === 0) return 0;
 
       const marketsById = {};
       for (const m of markets) marketsById[m.id] = m;
