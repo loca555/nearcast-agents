@@ -123,10 +123,13 @@ export function createMemory(dbPath) {
       const existing = db.prepare("SELECT COUNT(*) as c FROM bets").get().c;
       const chainCount = chainBets?.length || 0;
 
+      console.log(`[syncFromChain] Локальных ставок: ${existing}, на блокчейне: ${chainCount}`);
+
       // Если локальные данные расходятся с цепочкой — сбрасываем и пересинхронизируем
       // (контракт мог быть передеплоен, или ставки потеряны)
       if (existing > 0 && existing !== chainCount) {
         db.prepare("DELETE FROM bets").run();
+        console.log(`[syncFromChain] Удалено ${existing} устаревших локальных ставок`);
       } else if (existing > 0 && existing === chainCount) {
         return 0; // данные совпадают — пропускаем
       }

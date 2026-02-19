@@ -56,13 +56,25 @@ export class Agent {
     );
 
     // Синхронизация ставок с блокчейном (сброс устаревших данных после передеплоя контракта)
+    // Каждый API-вызов независимый — syncFromChain вызывается ВСЕГДА
+    let chainBets = [];
+    let allMarkets = [];
     try {
-      const chainBets = await this.api.getUserBets(this.wallet.accountId);
-      const allMarkets = await this.api.getMarkets({ limit: 100000 });
-      const synced = this.memory.syncFromChain(chainBets || [], allMarkets);
-      if (synced > 0) log.info(`Восстановлено ${synced} ставок из блокчейна`);
+      chainBets = (await this.api.getUserBets(this.wallet.accountId)) || [];
     } catch (err) {
-      log.warn(`Не удалось синхронизировать ставки: ${err.message}`);
+      log.warn(`Не удалось загрузить ставки с блокчейна: ${err.message}`);
+    }
+    try {
+      allMarkets = await this.api.getMarkets({ limit: 100000 });
+    } catch (err) {
+      log.warn(`Не удалось загрузить рынки: ${err.message}`);
+    }
+    try {
+      const synced = this.memory.syncFromChain(chainBets, allMarkets);
+      if (synced > 0) log.info(`Восстановлено ${synced} ставок из блокчейна`);
+      else log.info(`Синхронизация: 0 ставок на блокчейне, локальных стёрто`);
+    } catch (err) {
+      log.warn(`Ошибка syncFromChain: ${err.message}`);
     }
 
     log.info(`Инициализирован | Аккаунт: ${this.wallet.accountId}`);
