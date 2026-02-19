@@ -56,6 +56,11 @@ export class Orchestrator {
     this.cycleCount++;
     log.info(`─── Цикл #${this.cycleCount} ───`);
 
+    // 0. Проверяем резолвнутые рынки для ВСЕХ агентов (до загрузки активных)
+    for (const agent of this.agents) {
+      await agent.checkResolutions();
+    }
+
     // 1. Загружаем рынки (ОДИН раз для всех)
     const markets = await this.api.getMarkets({ status: "active" });
     log.info(`Активных рынков: ${markets.length}`);
@@ -90,12 +95,7 @@ export class Orchestrator {
     }
     const researchData = getAllResearch();
 
-    // 4. Проверяем резолвнутые рынки для ВСЕХ агентов
-    for (const agent of this.agents) {
-      await agent.checkResolutions();
-    }
-
-    // 5. Мониторинг балансов + пополнение если нужно
+    // 4. Мониторинг балансов + пополнение если нужно
     await this.monitorBalances();
 
     // 6. Собираем контексты всех агентов
