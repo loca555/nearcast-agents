@@ -183,6 +183,13 @@ export function createMemory(dbPath) {
       return synced;
     },
 
+    /** Принудительно удалить все ставки (для сброса stale данных) */
+    clearAllBets() {
+      const deleted = db.prepare("DELETE FROM bets").run();
+      console.log(`[Memory] clearAllBets: удалено ${deleted.changes} записей`);
+      return deleted.changes;
+    },
+
     close() {
       db.close();
     },

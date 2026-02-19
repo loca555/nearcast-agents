@@ -28,6 +28,10 @@ export class Orchestrator {
     this.running = true;
     log.info(`═══ Оркестратор запущен (${this.agents.length} агентов) ═══`);
 
+    // Сразу пушим актуальные stats (после syncFromChain в init)
+    log.info("Начальный pushAllStats (после syncFromChain)...");
+    await this.pushAllStats();
+
     // Первоначальное пополнение всех кошельков
     for (const agent of this.agents) {
       try {

@@ -171,6 +171,41 @@ dashboardApp.get("/api/logs", (req, res) => {
   res.type("text/plain").send(logBuffer.slice(-n).join("\n"));
 });
 
+// Принудительный сброс stale ставок (POST /api/force-reset)
+dashboardApp.post("/api/force-reset", async (_req, res) => {
+  try {
+    let result = {};
+    for (const agent of agents) {
+      const before = agent.memory.getStats();
+      // Принудительно удаляем все ставки из памяти агента
+      agent.memory.clearAllBets();
+      const after = agent.memory.getStats();
+      result[agent.config.name] = { before: before.total, after: after.total };
+    }
+    // Пушим обнулённые stats на дашборд
+    await orchestrator.pushAllStats();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Диагностика синхронизации (GET /api/sync-status)
+dashboardApp.get("/api/sync-status", (_req, res) => {
+  const result = {};
+  for (const agent of agents) {
+    const stats = agent.memory.getStats();
+    result[agent.config.name] = {
+      accountId: agent.wallet.accountId,
+      localBets: stats.total,
+      won: stats.won,
+      lost: stats.lost,
+      pending: stats.pending,
+    };
+  }
+  res.json(result);
+});
+
 const server = dashboardApp.listen(PORT, () => {
   console.log(`  Dashboard: http://localhost:${PORT}/`);
 });
