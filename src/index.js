@@ -206,6 +206,34 @@ dashboardApp.get("/api/sync-status", (_req, res) => {
   res.json(result);
 });
 
+// Ре-синхронизация ставок из блокчейна (POST /api/resync)
+dashboardApp.post("/api/resync", async (_req, res) => {
+  try {
+    const { createMarketAPI } = await import("./core/market-api.js");
+    const api = createMarketAPI(env.NEARCAST_API);
+    const allMarkets = await api.getMarkets({ limit: 100000 });
+    const result = {};
+
+    for (const agent of agents) {
+      const before = agent.memory.getStats().total;
+      const chainBets = await api.getUserBets(agent.wallet.accountId) || [];
+      const synced = agent.memory.syncFromChain(chainBets, allMarkets);
+      const after = agent.memory.getStats();
+      result[agent.config.name] = {
+        chainBets: chainBets.length,
+        before,
+        after: after.total,
+        synced,
+      };
+    }
+
+    await orchestrator.pushAllStats();
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const server = dashboardApp.listen(PORT, () => {
   console.log(`  Dashboard: http://localhost:${PORT}/`);
 });
