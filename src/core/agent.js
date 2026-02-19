@@ -130,7 +130,7 @@ export class Agent {
         if (!market || market.status === "active") continue;
 
         if (market.status === "resolved") {
-          const won = market.winning_outcome === bet.outcome;
+          const won = market.resolvedOutcome === bet.outcome;
 
           // Клеймим выигрыш на контракте (зачисляется на внутренний баланс)
           if (won) {
