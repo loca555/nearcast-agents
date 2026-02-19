@@ -55,6 +55,18 @@ export class Agent {
       env.DASHBOARD_URL, config.name, config.avatar, env.AGENT_SECRET
     );
 
+    // Восстанавливаем историю ставок из блокчейна (если SQLite пустая после редеплоя)
+    try {
+      const chainBets = await this.api.getUserBets(this.wallet.accountId);
+      if (chainBets && chainBets.length > 0) {
+        const allMarkets = await this.api.getMarkets({ limit: 100000 });
+        const synced = this.memory.syncFromChain(chainBets, allMarkets);
+        if (synced > 0) log.info(`Восстановлено ${synced} ставок из блокчейна`);
+      }
+    } catch (err) {
+      log.warn(`Не удалось синхронизировать ставки: ${err.message}`);
+    }
+
     log.info(`Инициализирован | Аккаунт: ${this.wallet.accountId}`);
     log.info(`Модель: ${config.model} | Риск: ${config.riskLevel} | Макс. ставка: ${config.maxBetNear} NEAR`);
 

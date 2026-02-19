@@ -114,6 +114,64 @@ export function createMemory(dbPath) {
       return db.prepare("SELECT DISTINCT market_id FROM bets").all().map(r => r.market_id);
     },
 
+    /**
+     * Восстановить историю ставок из блокчейна (после потери SQLite)
+     * @param {object[]} chainBets — результат get_user_bets из контракта
+     * @param {object[]} markets — все рынки из API
+     */
+    syncFromChain(chainBets, markets) {
+      if (!chainBets || chainBets.length === 0) return 0;
+
+      const existing = db.prepare("SELECT COUNT(*) as c FROM bets").get().c;
+      if (existing > 0) return 0; // уже есть данные — не перезаписываем
+
+      const marketsById = {};
+      for (const m of markets) marketsById[m.id] = m;
+
+      const insert = db.prepare(
+        "INSERT INTO bets (market_id, outcome, amount_near, odds_at_bet, reasoning, result, pnl_near, created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      );
+
+      let synced = 0;
+      const tx = db.transaction(() => {
+        for (const bet of chainBets) {
+          const market = marketsById[bet.marketId];
+          if (!market) continue;
+
+          // Пропускаем осиротевшие ставки от старых контрактов
+          if (Number(bet.timestamp) < Number(market.createdAt)) continue;
+
+          const amountNear = Number(bet.amount) / 1e24;
+          let result = "pending";
+          let pnl = 0;
+
+          if (market.status === "resolved") {
+            const won = market.resolvedOutcome === bet.outcome;
+            result = won ? "won" : "lost";
+            if (won) {
+              const totalPool = Number(market.totalPool) / 1e24;
+              const winPool = Number(market.outcomePools[bet.outcome]) / 1e24;
+              pnl = winPool > 0 ? (amountNear * totalPool / winPool) - amountNear : 0;
+            } else {
+              pnl = -amountNear;
+            }
+          } else if (market.status === "voided") {
+            result = "voided";
+            pnl = 0;
+          }
+
+          // Таймстамп из контракта (наносекунды → ISO строка)
+          const createdAt = new Date(Number(bet.timestamp) / 1e6).toISOString();
+          const resolvedAt = result !== "pending" ? new Date().toISOString() : null;
+
+          insert.run(bet.marketId, bet.outcome, amountNear, null, "synced from chain", result, pnl, createdAt, resolvedAt);
+          synced++;
+        }
+      });
+      tx();
+      return synced;
+    },
+
     close() {
       db.close();
     },
